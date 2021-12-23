@@ -1,4 +1,4 @@
 pip install -e .
-$env:FLASK_APP="tasks_server"
-$env:FLASK_ENV="development"
+[System.Environment]::SetEnvironmentVariable("FLASK_APP", "tasks_server", "User")
+[System.Environment]::SetEnvironmentVariable("FLASK_ENV", "development", "User")
 flask init-db
