@@ -23,7 +23,7 @@ def create_app(config_override=None):
     db.init_app(app)
 
     from . import inbox
-    app.register_blueprint(inbox.bp)
+    app.register_blueprint(inbox.inbox)
 
     return app
 

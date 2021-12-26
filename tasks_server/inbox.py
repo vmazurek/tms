@@ -1,34 +1,86 @@
+from enum import Enum
 from http import HTTPStatus
-from flask import Blueprint, request
+from flask import Blueprint, request, make_response, url_for
 
 from tasks_server.db import get_db
 
-bp = Blueprint("inbox", __name__, url_prefix="/inbox")
+inbox = Blueprint("inbox", __name__, url_prefix="/inbox")
 
 
-@bp.route("/", methods=["GET"])
-def list_inbox():
-    db = get_db()
-    actions = list(map(
-        lambda action: {"id": action["id"], "title": action["title"]},
-        db.execute("select id, title from task").fetchall()))
+class TaskStatus(Enum):
+    NEW = 0
+    DEFERRED = 1
+    ACTIONABLE = 2
+    COMPLETED = 4
+    DROPPED = 4
+
+
+def web_model_for(item):
     return {
-        "items": actions
+        "title": item["title"],
+        "description": item["description"],
+        "actions": {
+            "complete": url_for("inbox.complete_item", item_id=item["id"], _external=True)
+        }
     }
 
 
-@bp.route("/", methods=["POST"])
+@inbox.route("", methods=["GET"])
+def list_inbox():
+    db = get_db()
+    query_result = \
+        db.execute("select id, title, description from task where status = ?",
+                   [TaskStatus.NEW.value]).fetchall()
+    return {
+        "items": list(map(
+            lambda item: web_model_for(item),
+            query_result
+        ))
+    }
+
+
+@inbox.route("", methods=["POST"])
 def add_inbox_item():
     data = request.get_json()
+    title = data["title"]
+    description = ""
+    if "description" in data:
+        description = data["description"]
+
     db = get_db()
-    db.execute("insert into task (title) values (?)", [data["title"]])
+    query_result = \
+        db.execute("insert into task (title, description) values (?, ?) returning id",
+                   [title, description]).fetchone()
+    db.commit()
+
+    response = make_response()
+    response.status_code = HTTPStatus.CREATED
+    response.headers["Location"] = \
+        url_for("inbox.get_item", item_id=query_result["id"], _external=True)
+    return response
+
+
+@inbox.route("/<item_id>", methods=["GET"])
+def get_item(item_id):
+    db = get_db()
+    query_result = \
+        db.execute("select id, title, description from task where id = ?",
+                   [item_id]).fetchone()
+    return web_model_for(query_result)
+
+
+@inbox.route("/<item_id>/complete", methods=["POST"])
+def complete_item(item_id):
+    db = get_db()
+    db.execute("update task set status = ? where id = ?",
+               [TaskStatus.COMPLETED.value, item_id])
     db.commit()
     return '', HTTPStatus.NO_CONTENT
 
 
-@bp.route("/<id>", methods=["DELETE"])
-def delete_inbox_item(id):
+@inbox.route("/<item_id>", methods=["DELETE"])
+def delete_inbox_item(item_id):
     db = get_db()
-    db.execute("delete from task where id = ?", [id])
+    db.execute("delete from task where id = ?", [item_id])
     db.commit()
     return '', HTTPStatus.NO_CONTENT
